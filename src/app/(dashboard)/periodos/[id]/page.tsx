@@ -3,9 +3,9 @@ import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
-import { COUNTED_STATUSES, PAID_STATUSES, PENDING_STATUSES, sumNet } from "@/lib/payroll-reporting";
 import { hasPermission } from "@/lib/permissions";
 import { assertBranchAccess, requireUser } from "@/server/auth";
+import { loadReportRows, summarize } from "@/server/reporting";
 
 export default async function PeriodDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -13,13 +13,7 @@ export default async function PeriodDetailPage({ params }: { params: Promise<{ i
   const canSeeSalary = hasPermission(user.role, "salary:view");
   const period = await db.payrollPeriod.findUnique({
     where: { id },
-    include: {
-      branch: true,
-      payrolls: {
-        orderBy: { employeeNameSnapshot: "asc" },
-        include: { replacementPayroll: { select: { id: true } } },
-      },
-    },
+    include: { branch: true, payrolls: { orderBy: { employeeNameSnapshot: "asc" } } },
   });
   if (!period) notFound();
   assertBranchAccess(user, period.branchId);
@@ -32,10 +26,8 @@ export default async function PeriodDetailPage({ params }: { params: Promise<{ i
         : { branchId: { in: user.branchIds } }),
   };
   const employees = await db.employee.findMany({ where: employeeWhere, include: { branch: true, position: true }, orderBy: { lastName: "asc" } });
-  // Solo PAID y FINALIZED en su última versión suman en los totales.
-  const countable = period.payrolls.filter(
-    (payroll) => COUNTED_STATUSES.includes(payroll.status) && !payroll.replacementPayroll,
-  );
+  // Los totales salen de la capa unificada, con el mismo criterio que el inicio.
+  const totals = summarize(await loadReportRows(user, { periodId: period.id }));
   const captured = new Set(period.payrolls.map((payroll) => payroll.employeeId));
   return (
     <>
@@ -46,9 +38,9 @@ export default async function PeriodDetailPage({ params }: { params: Promise<{ i
       <section className="mb-5 grid gap-4 sm:grid-cols-4">
         <Metric label="Empleados incluidos" value={String(employees.length)} />
         <Metric label="Sin captura" value={String(employees.length - captured.size)} />
-        <Metric label="Finalizados" value={String(countable.length)} />
-        {canSeeSalary && <Metric label="Total pagado" value={formatMoney(sumNet(countable, PAID_STATUSES))} />}
-        {canSeeSalary && <Metric label="Total pendiente" value={formatMoney(sumNet(countable, PENDING_STATUSES))} />}
+        <Metric label="Finalizados" value={String(totals.nominas)} />
+        {canSeeSalary && <Metric label="Total pagado" value={formatMoney(totals.pagado)} />}
+        {canSeeSalary && <Metric label="Total pendiente" value={formatMoney(totals.pendiente)} />}
       </section>
       <div className="table-wrap"><table className="data-table"><thead><tr><th>Empleado</th><th>Sucursal</th>{canSeeSalary && <th>Sueldo</th>}<th>Estado</th>{canSeeSalary && <th>Total</th>}<th>Acción</th></tr></thead><tbody>
         {employees.map((employee) => {

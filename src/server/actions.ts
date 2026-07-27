@@ -10,7 +10,7 @@ import { db } from "@/lib/db";
 import { formatDate } from "@/lib/format";
 import { canManageUser, hasPermission } from "@/lib/permissions";
 import type { QuickCaptureData } from "@/lib/quick-capture";
-import { ForbiddenError, assertBranchAccess, requireUser } from "@/server/auth";
+import { ForbiddenError, assertBranchAccess, branchAndFilters, requireUser } from "@/server/auth";
 import {
   addPayrollMovement,
   cancelPayroll,
@@ -261,10 +261,9 @@ export async function quickCaptureDataAction(): Promise<ActionResult<QuickCaptur
   try {
     const user = await requireUser("payroll:draft");
     const canSeeSalary = hasPermission(user.role, "salary:view");
-    const branchFilter = user.role === "SUPER_ADMIN" ? {} : { branchId: { in: user.branchIds } };
     const [employees, periods, concepts] = await Promise.all([
       db.employee.findMany({
-        where: { isActive: true, ...branchFilter },
+        where: { isActive: true, AND: branchAndFilters(user) },
         orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
         select: {
           id: true,

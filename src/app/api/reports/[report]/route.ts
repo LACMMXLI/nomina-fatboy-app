@@ -2,25 +2,25 @@ import ExcelJS from "exceljs";
 import { PayrollStatus } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { periodicityLabel, statusLabel } from "@/lib/labels";
-import { countableWhere, uniqueEmployees } from "@/lib/payroll-reporting";
-import { requireUser } from "@/server/auth";
+import { branchAndFilters, requireUser } from "@/server/auth";
+import { reportWhere, summarize } from "@/server/reporting";
 
 export const runtime = "nodejs";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ report: string }> }) {
   const { report } = await params;
   const user = await requireUser("exports:create");
-  const branchWhere = user.role === "SUPER_ADMIN" ? {} : { branchId: { in: user.branchIds } };
+  const branchWhere = { AND: branchAndFilters(user) };
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Nómina Fatboy";
   workbook.created = new Date();
   if (report === "payrolls.xlsx") {
-    // Solo PAID y FINALIZED, y solo la última versión: las canceladas,
-    // reemplazadas y los borradores nunca entran al reporte.
+    // Misma condición unificada que las pantallas: el Excel no puede diferir.
     const rows = await db.payroll.findMany({
-      where: { ...branchWhere, ...countableWhere },
+      where: reportWhere(user),
       orderBy: { createdAt: "desc" },
     });
+    const totals = summarize(rows);
     const sheet = workbook.addWorksheet("Nóminas");
     sheet.columns = [
       { header: "Folio", key: "folio", width: 20 },
@@ -51,14 +51,16 @@ export async function GET(_request: Request, { params }: { params: Promise<{ rep
       });
     });
     for (const column of ["F", "G", "H", "I"]) sheet.getColumn(column).numFmt = '"$"#,##0.00';
-    const totals = sheet.addRow({
-      employee: `TOTALES · ${uniqueEmployees(rows)} empleados únicos`,
-      income: { formula: `SUM(F2:F${sheet.rowCount})` },
-      deductions: { formula: `SUM(G2:G${sheet.rowCount})` },
-      paid: { formula: `SUM(H2:H${sheet.rowCount})` },
-      pending: { formula: `SUM(I2:I${sheet.rowCount})` },
+    // Los totales se escriben ya calculados por `summarize`, no como fórmula,
+    // para que el archivo muestre exactamente la misma cifra que las pantallas.
+    const totalsRow = sheet.addRow({
+      employee: `TOTALES · ${totals.empleados} empleados únicos · ${totals.nominas} nóminas`,
+      income: Number(totals.ingresos),
+      deductions: Number(totals.descuentos),
+      paid: Number(totals.pagado),
+      pending: Number(totals.pendiente),
     });
-    totals.font = { bold: true };
+    totalsRow.font = { bold: true };
     sheet.autoFilter = `A1:J${sheet.rowCount}`;
   } else if (report === "employees.xlsx") {
     const rows = await db.employee.findMany({ where: branchWhere, include: { branch: true, position: true }, orderBy: { lastName: "asc" } });

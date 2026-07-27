@@ -15,29 +15,29 @@ import { QuickMovement } from "@/components/quick-movement";
 import { Badge } from "@/components/ui/badge";
 import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
-import { paidWhere, pendingWhere } from "@/lib/payroll-reporting";
 import { hasPermission } from "@/lib/permissions";
-import { requireUser } from "@/server/auth";
+import { branchAndFilters, requireUser } from "@/server/auth";
+import { EMPTY_TOTALS, loadReportRows, summarize, summarizeBy } from "@/server/reporting";
 
 export const metadata = { title: "Inicio" };
 
 export default async function DashboardPage() {
   const user = await requireUser("reports:view");
-  const branchFilter = user.role === "SUPER_ADMIN" ? {} : { branchId: { in: user.branchIds } };
-  const [paid, pending, employeeCount, draftCount, recent, branches, openPeriod] = await Promise.all([
-    db.payroll.aggregate({ where: { ...branchFilter, ...paidWhere }, _sum: { netPay: true } }),
-    db.payroll.aggregate({ where: { ...branchFilter, ...pendingWhere }, _sum: { netPay: true } }),
-    db.employee.count({ where: { ...branchFilter, isActive: true } }),
-    db.payroll.count({ where: { ...branchFilter, status: { in: ["DRAFT", "IN_REVIEW"] } } }),
+  const employeeScope = { AND: branchAndFilters(user) };
+  const [rows, employeeCount, draftCount, recent, branches, openPeriod] = await Promise.all([
+    // Misma condición unificada que el resto de reportes.
+    loadReportRows(user),
+    db.employee.count({ where: { ...employeeScope, isActive: true } }),
+    db.payroll.count({ where: { AND: [...branchAndFilters(user), { status: { in: ["DRAFT", "IN_REVIEW"] } }] } }),
     db.payroll.findMany({
-      where: branchFilter,
+      where: employeeScope,
       take: 6,
       orderBy: { updatedAt: "desc" },
       select: { id: true, folio: true, employeeNameSnapshot: true, netPay: true, status: true, updatedAt: true },
     }),
     db.branch.findMany({
       where: user.role === "SUPER_ADMIN" ? {} : { id: { in: user.branchIds } },
-      include: { payrolls: { where: paidWhere, select: { netPay: true } } },
+      select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
     db.payrollPeriod.findFirst({
@@ -50,9 +50,11 @@ export default async function DashboardPage() {
     }),
   ]);
 
+  const totals = summarize(rows);
+  const byBranch = summarizeBy(rows, (row) => row.branchId);
   const chart = branches.map((branch) => ({
     name: branch.name,
-    total: branch.payrolls.reduce((sum, payroll) => sum + Number(payroll.netPay), 0),
+    total: Number((byBranch.get(branch.id) ?? EMPTY_TOTALS).pagado),
   }));
 
   const canSeeSalary = hasPermission(user.role, "salary:view");
@@ -97,8 +99,8 @@ export default async function DashboardPage() {
       )}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {canSeeSalary && <Metric label="Total pagado" value={formatMoney(paid._sum.netPay ?? 0)} icon={BanknoteArrowUp} accent="var(--income)" />}
-        {canSeeSalary && <Metric label="Pendiente de pago" value={formatMoney(pending._sum.netPay ?? 0)} icon={Clock3} accent="#f59e0b" />}
+        {canSeeSalary && <Metric label="Total pagado" value={formatMoney(totals.pagado)} icon={BanknoteArrowUp} accent="var(--income)" />}
+        {canSeeSalary && <Metric label="Pendiente de pago" value={formatMoney(totals.pendiente)} icon={Clock3} accent="#f59e0b" />}
         <Metric label="Empleados activos" value={String(employeeCount)} icon={Users} accent="#3b82f6" />
         <Metric
           label="Borradores sin finalizar"
