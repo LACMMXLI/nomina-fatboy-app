@@ -1,9 +1,8 @@
 import ExcelJS from "exceljs";
-import { PayrollStatus } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { periodicityLabel, statusLabel } from "@/lib/labels";
 import { branchAndFilters, requireUser } from "@/server/auth";
-import { reportWhere, summarize } from "@/server/reporting";
+import { reportWhere, splitReportNet, summarize } from "@/server/reporting";
 
 export const runtime = "nodejs";
 
@@ -35,8 +34,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ rep
       { header: "Estado", key: "status", width: 16 },
     ];
     rows.forEach((row) => {
-      const net = Number(row.netPay);
-      const isPaid = row.status === PayrollStatus.PAID;
+      const net = splitReportNet(row);
       sheet.addRow({
         folio: row.folio,
         employee: row.employeeNameSnapshot,
@@ -45,8 +43,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ rep
         period: row.periodNameSnapshot,
         income: Number(row.totalIncome),
         deductions: Number(row.totalDeductions),
-        paid: isPaid ? net : 0,
-        pending: isPaid ? 0 : net,
+        paid: Number(net.pagado),
+        pending: Number(net.pendiente),
         status: statusLabel(row.status),
       });
     });

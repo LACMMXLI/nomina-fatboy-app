@@ -1,6 +1,6 @@
 import "server-only";
 import Decimal from "decimal.js";
-import { PayrollStatus, Prisma } from "@/generated/prisma/client";
+import { ConceptType, PayrollStatus, Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { branchAndFilters, type CurrentUser } from "@/server/auth";
 
@@ -84,6 +84,15 @@ export interface ReportTotals {
 
 type SummarizableRow = Pick<ReportRow, "employeeId" | "status" | "netPay" | "totalIncome" | "totalDeductions">;
 
+/** Separa el neto con exactamente la misma regla para pantallas y Excel. */
+export function splitReportNet(row: Pick<ReportRow, "status" | "netPay">) {
+  const net = new Decimal(row.netPay.toString());
+  return {
+    pagado: PAID_STATUSES.includes(row.status) ? net.toFixed(2) : "0.00",
+    pendiente: PENDING_STATUSES.includes(row.status) ? net.toFixed(2) : "0.00",
+  };
+}
+
 /** Totales de un conjunto de filas ya filtrado con `reportWhere`. */
 export function summarize(rows: SummarizableRow[]): ReportTotals {
   let pagado = new Decimal(0);
@@ -92,9 +101,9 @@ export function summarize(rows: SummarizableRow[]): ReportTotals {
   let descuentos = new Decimal(0);
   const empleados = new Set<string>();
   for (const row of rows) {
-    const net = new Decimal(row.netPay.toString());
-    if (PAID_STATUSES.includes(row.status)) pagado = pagado.add(net);
-    else pendiente = pendiente.add(net);
+    const net = splitReportNet(row);
+    pagado = pagado.add(net.pagado);
+    pendiente = pendiente.add(net.pendiente);
     ingresos = ingresos.add(row.totalIncome.toString());
     descuentos = descuentos.add(row.totalDeductions.toString());
     empleados.add(row.employeeId);
@@ -108,6 +117,30 @@ export function summarize(rows: SummarizableRow[]): ReportTotals {
     nominas: rows.length,
     empleados: empleados.size,
   };
+}
+
+type SummarizableConcept = {
+  conceptNameSnapshot: string;
+  type: ConceptType;
+  totalAmount: { toString(): string };
+};
+
+/** Desglose por concepto calculado en código, sin groupBy/_sum financiero. */
+export function summarizeConcepts(items: SummarizableConcept[], take = 15) {
+  const totals = new Map<string, { conceptNameSnapshot: string; type: ConceptType; totalAmount: Decimal }>();
+  for (const item of items) {
+    const key = JSON.stringify([item.type, item.conceptNameSnapshot]);
+    const current = totals.get(key);
+    totals.set(key, {
+      conceptNameSnapshot: item.conceptNameSnapshot,
+      type: item.type,
+      totalAmount: (current?.totalAmount ?? new Decimal(0)).add(item.totalAmount.toString()),
+    });
+  }
+  return [...totals.values()]
+    .sort((a, b) => b.totalAmount.comparedTo(a.totalAmount))
+    .slice(0, take)
+    .map((item) => ({ ...item, totalAmount: item.totalAmount.toFixed(2) }));
 }
 
 /** Agrupa y resume por una clave de la fila (sucursal, periodo…). */
