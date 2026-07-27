@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.codex
+.codebase-memory
+.env
+uploads
+backups
+playwright-report
+test-results
+npm-debug.log

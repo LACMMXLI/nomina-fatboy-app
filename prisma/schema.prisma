@@ -1,0 +1,494 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMINISTRADOR
+  ENCARGADO
+  CONSULTA
+}
+
+enum Theme {
+  SYSTEM
+  LIGHT
+  DARK
+}
+
+enum PrintSize {
+  MM58
+  MM80
+  LETTER
+  HALF_LETTER
+}
+
+enum SalaryPeriodicity {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+}
+
+enum CalculationMode {
+  FIXED
+  PRORATED
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+  MIXED
+  OTHER
+}
+
+enum PeriodStatus {
+  DRAFT
+  OPEN
+  IN_REVIEW
+  CLOSED
+  CANCELLED
+}
+
+enum PeriodType {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  CUSTOM
+}
+
+enum ConceptType {
+  INCOME
+  DEDUCTION
+}
+
+enum PayrollStatus {
+  DRAFT
+  IN_REVIEW
+  FINALIZED
+  PAID
+  CANCELLED
+  REPLACED
+}
+
+enum FolioType {
+  PERIOD
+  PAYROLL
+  RECEIPT
+}
+
+enum FileType {
+  LOGO
+  EMPLOYEE_PHOTO
+  SIGNATURE
+}
+
+model User {
+  id                  String    @id @default(uuid()) @db.Uuid
+  username            String    @unique
+  email               String    @unique
+  passwordHash        String
+  firstName           String
+  lastName            String
+  role                Role
+  isActive            Boolean   @default(true)
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  authVersion         Int       @default(1)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  branches            UserBranch[]
+  preference          UserPreference?
+  createdPeriods      PayrollPeriod[]         @relation("PeriodCreator")
+  closedPeriods       PayrollPeriod[]         @relation("PeriodCloser")
+  salaryChanges       EmployeeSalaryHistory[]
+  createdPayrolls     Payroll[]               @relation("PayrollCreator")
+  updatedPayrolls     Payroll[]               @relation("PayrollUpdater")
+  finalizedPayrolls   Payroll[]               @relation("PayrollFinalizer")
+  paidPayrolls        Payroll[]               @relation("PayrollPayer")
+  cancelledPayrolls   Payroll[]               @relation("PayrollCanceller")
+  authorizedNegatives Payroll[]               @relation("NegativeAuthorizer")
+  deliveredPayments   PayrollPayment[]
+  generatedReceipts   PayrollReceipt[]
+  auditLogs           AuditLog[]
+  uploadedAssets      FileAsset[]
+
+  @@index([lastName, firstName])
+}
+
+model UserPreference {
+  userId    String    @id @db.Uuid
+  theme     Theme     @default(SYSTEM)
+  printSize PrintSize @default(MM80)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserBranch {
+  userId   String @db.Uuid
+  branchId String @db.Uuid
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@id([userId, branchId])
+  @@index([branchId])
+}
+
+model Branch {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String   @unique
+  address     String?
+  phone       String?
+  managerName String?
+  color       String   @default("#dc2626")
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users     UserBranch[]
+  employees Employee[]
+  periods   PayrollPeriod[]
+  payrolls  Payroll[]
+  auditLogs AuditLog[]
+}
+
+model Position {
+  id          String     @id @default(uuid()) @db.Uuid
+  code        String     @unique
+  name        String     @unique
+  description String?
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  employees   Employee[]
+}
+
+model Employee {
+  id                   String            @id @default(uuid()) @db.Uuid
+  employeeNumber       String            @unique
+  firstName            String
+  lastName             String
+  secondLastName       String?
+  branchId             String            @db.Uuid
+  positionId           String            @db.Uuid
+  hireDate             DateTime          @db.Date
+  terminationDate      DateTime?         @db.Date
+  terminationReason    String?
+  baseSalary           Decimal           @db.Decimal(14, 2)
+  salaryPeriodicity    SalaryPeriodicity @default(WEEKLY)
+  baseDays             Decimal           @default(7) @db.Decimal(6, 2)
+  calculationMode      CalculationMode   @default(FIXED)
+  overtimeRate         Decimal?          @db.Decimal(14, 2)
+  paymentMethod        PaymentMethod     @default(CASH)
+  bankName             String?
+  bankAccountReference String?
+  phone                String?
+  email                String?
+  notes                String?
+  photoUrl             String?
+  isActive             Boolean           @default(true)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  branch        Branch                  @relation(fields: [branchId], references: [id])
+  position      Position                @relation(fields: [positionId], references: [id])
+  salaryHistory EmployeeSalaryHistory[]
+  payrolls      Payroll[]
+
+  @@index([branchId, isActive])
+  @@index([positionId])
+  @@index([lastName, firstName])
+  @@index([hireDate])
+}
+
+model EmployeeSalaryHistory {
+  id              String   @id @default(uuid()) @db.Uuid
+  employeeId      String   @db.Uuid
+  previousSalary  Decimal  @db.Decimal(14, 2)
+  newSalary       Decimal  @db.Decimal(14, 2)
+  effectiveDate   DateTime @db.Date
+  reason          String
+  changedByUserId String   @db.Uuid
+  createdAt       DateTime @default(now())
+  employee        Employee @relation(fields: [employeeId], references: [id])
+  changedBy       User     @relation(fields: [changedByUserId], references: [id])
+
+  @@index([employeeId, effectiveDate])
+}
+
+model PayrollPeriod {
+  id              String       @id @default(uuid()) @db.Uuid
+  folio           String       @unique
+  name            String
+  startDate       DateTime     @db.Date
+  endDate         DateTime     @db.Date
+  paymentDate     DateTime     @db.Date
+  periodType      PeriodType   @default(WEEKLY)
+  branchId        String?      @db.Uuid
+  status          PeriodStatus @default(DRAFT)
+  notes           String?
+  createdByUserId String       @db.Uuid
+  openedAt        DateTime?
+  closedAt        DateTime?
+  closedByUserId  String?      @db.Uuid
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  branch    Branch?   @relation(fields: [branchId], references: [id])
+  createdBy User      @relation("PeriodCreator", fields: [createdByUserId], references: [id])
+  closedBy  User?     @relation("PeriodCloser", fields: [closedByUserId], references: [id])
+  payrolls  Payroll[]
+
+  @@index([branchId, status])
+  @@index([startDate, endDate])
+}
+
+model PayrollConcept {
+  id                 String        @id @default(uuid()) @db.Uuid
+  code               String        @unique
+  name               String
+  description        String?
+  type               ConceptType
+  requiresNote       Boolean       @default(false)
+  allowsQuantity     Boolean       @default(true)
+  allowsManualAmount Boolean       @default(true)
+  showInQuickCapture Boolean       @default(false)
+  showOnReceipt      Boolean       @default(true)
+  displayOrder       Int           @default(0)
+  isDefault          Boolean       @default(false)
+  isActive           Boolean       @default(true)
+  color              String?
+  icon               String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  items              PayrollItem[]
+
+  @@index([type, isActive, displayOrder])
+}
+
+model Payroll {
+  id                          String          @id @default(uuid()) @db.Uuid
+  folio                       String          @unique
+  version                     Int             @default(1)
+  periodId                    String          @db.Uuid
+  employeeId                  String          @db.Uuid
+  branchId                    String          @db.Uuid
+  status                      PayrollStatus   @default(DRAFT)
+  employeeNumberSnapshot      String
+  employeeNameSnapshot        String
+  positionNameSnapshot        String
+  branchNameSnapshot          String
+  periodNameSnapshot          String
+  periodStartSnapshot         DateTime        @db.Date
+  periodEndSnapshot           DateTime        @db.Date
+  baseSalarySnapshot          Decimal         @db.Decimal(14, 2)
+  baseDaysSnapshot            Decimal         @db.Decimal(6, 2)
+  daysWorked                  Decimal         @default(0) @db.Decimal(6, 2)
+  daysPaid                    Decimal         @default(0) @db.Decimal(6, 2)
+  absences                    Decimal         @default(0) @db.Decimal(6, 2)
+  delays                      Decimal         @default(0) @db.Decimal(8, 2)
+  overtimeHours               Decimal         @default(0) @db.Decimal(8, 2)
+  calculationModeSnapshot     CalculationMode
+  totalIncome                 Decimal         @default(0) @db.Decimal(14, 2)
+  totalDeductions             Decimal         @default(0) @db.Decimal(14, 2)
+  netPay                      Decimal         @default(0) @db.Decimal(14, 2)
+  pendingBalance              Decimal         @default(0) @db.Decimal(14, 2)
+  paymentMethod               PaymentMethod
+  generalNotes                String?
+  receiptToken                String?         @unique
+  previousPayrollId           String?         @unique @db.Uuid
+  negativeAuthorizedById      String?         @db.Uuid
+  negativeAuthorizationReason String?
+  finalizedAt                 DateTime?
+  finalizedByUserId           String?         @db.Uuid
+  paidAt                      DateTime?
+  paidByUserId                String?         @db.Uuid
+  cancelledAt                 DateTime?
+  cancelledByUserId           String?         @db.Uuid
+  cancellationReason          String?
+  createdByUserId             String          @db.Uuid
+  updatedByUserId             String          @db.Uuid
+  createdAt                   DateTime        @default(now())
+  updatedAt                   DateTime        @updatedAt
+
+  period               PayrollPeriod    @relation(fields: [periodId], references: [id])
+  employee             Employee         @relation(fields: [employeeId], references: [id])
+  branch               Branch           @relation(fields: [branchId], references: [id])
+  previousPayroll      Payroll?         @relation("PayrollVersions", fields: [previousPayrollId], references: [id])
+  replacementPayroll   Payroll?         @relation("PayrollVersions")
+  negativeAuthorizedBy User?            @relation("NegativeAuthorizer", fields: [negativeAuthorizedById], references: [id])
+  finalizedBy          User?            @relation("PayrollFinalizer", fields: [finalizedByUserId], references: [id])
+  paidBy               User?            @relation("PayrollPayer", fields: [paidByUserId], references: [id])
+  cancelledBy          User?            @relation("PayrollCanceller", fields: [cancelledByUserId], references: [id])
+  createdBy            User             @relation("PayrollCreator", fields: [createdByUserId], references: [id])
+  updatedBy            User             @relation("PayrollUpdater", fields: [updatedByUserId], references: [id])
+  items                PayrollItem[]
+  payments             PayrollPayment[]
+  receipt              PayrollReceipt?
+
+  @@unique([periodId, employeeId, version])
+  @@index([periodId, status])
+  @@index([employeeId, createdAt])
+  @@index([branchId, status])
+  @@index([createdAt])
+}
+
+model PayrollItem {
+  id                  String          @id @default(uuid()) @db.Uuid
+  payrollId           String          @db.Uuid
+  conceptId           String?         @db.Uuid
+  conceptCodeSnapshot String
+  conceptNameSnapshot String
+  type                ConceptType
+  quantity            Decimal         @default(1) @db.Decimal(14, 4)
+  unitAmount          Decimal         @db.Decimal(14, 2)
+  totalAmount         Decimal         @db.Decimal(14, 2)
+  referenceDate       DateTime?       @db.Date
+  reference           String?
+  notes               String?
+  displayOrder        Int             @default(0)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  payroll             Payroll         @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  concept             PayrollConcept? @relation(fields: [conceptId], references: [id])
+
+  @@index([payrollId, type, displayOrder])
+  @@index([conceptId])
+}
+
+model PayrollPayment {
+  id                String        @id @default(uuid()) @db.Uuid
+  payrollId         String        @db.Uuid
+  paymentMethod     PaymentMethod
+  cashAmount        Decimal       @default(0) @db.Decimal(14, 2)
+  transferAmount    Decimal       @default(0) @db.Decimal(14, 2)
+  otherAmount       Decimal       @default(0) @db.Decimal(14, 2)
+  transferReference String?
+  paidAt            DateTime
+  deliveredByUserId String        @db.Uuid
+  receivedByName    String
+  notes             String?
+  signatureUrl      String?
+  createdAt         DateTime      @default(now())
+  payroll           Payroll       @relation(fields: [payrollId], references: [id])
+  deliveredBy       User          @relation(fields: [deliveredByUserId], references: [id])
+
+  @@index([payrollId, paidAt])
+}
+
+model PayrollReceipt {
+  id                String    @id @default(uuid()) @db.Uuid
+  payrollId         String    @unique @db.Uuid
+  receiptNumber     String    @unique
+  version           Int
+  verificationToken String    @unique
+  snapshot          Json
+  pdfPath           String?
+  printCount        Int       @default(0)
+  lastPrintedAt     DateTime?
+  generatedAt       DateTime  @default(now())
+  generatedByUserId String    @db.Uuid
+  payroll           Payroll   @relation(fields: [payrollId], references: [id])
+  generatedBy       User      @relation(fields: [generatedByUserId], references: [id])
+
+  @@index([generatedAt])
+}
+
+model SystemSettings {
+  id                          String            @id @default("default")
+  businessName                String            @default("Fatboy")
+  logoUrl                     String?
+  primaryColor                String            @default("#dc2626")
+  secondaryColor              String            @default("#171717")
+  accentColor                 String            @default("#f59e0b")
+  address                     String?
+  phone                       String?
+  receiptFooter               String?
+  legalLegend                 String
+  defaultPrintSize            PrintSize         @default(MM80)
+  showEmployeeSignature       Boolean           @default(true)
+  showManagerSignature        Boolean           @default(true)
+  showQr                      Boolean           @default(true)
+  defaultPeriodicity          SalaryPeriodicity @default(WEEKLY)
+  defaultBaseDays             Decimal           @default(7) @db.Decimal(6, 2)
+  defaultCalculationMode      CalculationMode   @default(FIXED)
+  allowNegativeTotal          Boolean           @default(false)
+  requireNegativeApproval     Boolean           @default(true)
+  requireDiscountNotes        Boolean           @default(false)
+  requireCancellationPassword Boolean           @default(true)
+  requireSignature            Boolean           @default(false)
+  showZeroConcepts            Boolean           @default(false)
+  currency                    String            @default("MXN")
+  timezone                    String            @default("America/Tijuana")
+  createdAt                   DateTime          @default(now())
+  updatedAt                   DateTime          @updatedAt
+}
+
+model AuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String?  @db.Uuid
+  action         String
+  entityType     String
+  entityId       String?
+  branchId       String?  @db.Uuid
+  previousValues Json?
+  newValues      Json?
+  metadata       Json?
+  reason         String?
+  ipAddress      String?
+  userAgent      String?
+  result         String   @default("SUCCESS")
+  createdAt      DateTime @default(now())
+  user           User?    @relation(fields: [userId], references: [id])
+  branch         Branch?  @relation(fields: [branchId], references: [id])
+
+  @@index([entityType, entityId, createdAt])
+  @@index([userId, createdAt])
+  @@index([branchId, createdAt])
+  @@index([createdAt])
+}
+
+model LoginAttempt {
+  id        String   @id @default(uuid()) @db.Uuid
+  username  String
+  success   Boolean
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([username, createdAt])
+  @@index([ipAddress, createdAt])
+}
+
+model FileAsset {
+  id               String   @id @default(uuid()) @db.Uuid
+  fileType         FileType
+  originalName     String
+  storedName       String   @unique
+  mimeType         String
+  size             Int
+  path             String
+  isPublic         Boolean  @default(false)
+  uploadedByUserId String   @db.Uuid
+  createdAt        DateTime @default(now())
+  uploadedBy       User     @relation(fields: [uploadedByUserId], references: [id])
+
+  @@index([fileType, createdAt])
+}
+
+model FolioCounter {
+  year      Int
+  type      FolioType
+  value     Int       @default(0)
+  updatedAt DateTime  @updatedAt
+
+  @@id([year, type])
+}

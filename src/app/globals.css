@@ -1,0 +1,549 @@
+@import "tailwindcss";
+
+/* En Tailwind v4 `dark:` sigue al sistema operativo por omisión, pero el tema lo
+   controla next-themes con la clase `.dark`. Sin esto, las etiquetas de estado
+   se pintarían según el sistema y no según el interruptor de la aplicación. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+  --background: #f4f5f7;
+  --background-accent: #eceef2;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-muted: #f7f8fa;
+  --input: #ffffff;
+  --muted: #59627a;
+  --border: #e6e8ee;
+  --border-strong: #d3d8e2;
+  --primary: #dc2626;
+  --primary-hover: #b91c1c;
+  --primary-foreground: #ffffff;
+  --primary-soft: #fef2f2;
+  --income: #047857;
+  --income-soft: #ecfdf5;
+  --deduction: #dc2626;
+  --deduction-soft: #fef2f2;
+  --ring: rgba(220, 38, 38, 0.26);
+  /* Nombres propios: `--radius-sm|md|lg|xl` pertenecen al tema de Tailwind
+     y redefinirlos alteraría todas las utilidades `rounded-*` de la app. */
+  --radius: 12px;
+  --radius-modal: 22px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 4px 12px -6px rgba(15, 23, 42, 0.12);
+  --shadow-md: 0 2px 4px rgba(15, 23, 42, 0.04), 0 12px 24px -12px rgba(15, 23, 42, 0.18);
+  --shadow-lg: 0 24px 48px -20px rgba(15, 23, 42, 0.3);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #090b0f;
+  --background-accent: #0e1117;
+  --foreground: #eef1f6;
+  --card: #14171d;
+  --card-muted: #1a1e26;
+  --input: #1a1e26;
+  --muted: #98a2b6;
+  --border: #242932;
+  --border-strong: #333a47;
+  --primary: #ef4444;
+  --primary-hover: #f87171;
+  --primary-foreground: #ffffff;
+  --primary-soft: #2a1214;
+  --income: #34d399;
+  --income-soft: #0f2620;
+  --deduction: #f87171;
+  --deduction-soft: #2a1214;
+  --ring: rgba(248, 113, 113, 0.32);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 4px 12px -6px rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.4), 0 12px 24px -12px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 24px 48px -20px rgba(0, 0, 0, 0.85);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  background: var(--background);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1100px 520px at 12% -10%, color-mix(in srgb, var(--primary) 6%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--background-accent), var(--background) 340px);
+  background-attachment: fixed;
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--primary);
+  width: 1rem;
+  height: 1rem;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 38%, transparent);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted) 58%, transparent);
+  background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@layer components {
+  /* ---------- Superficies ---------- */
+
+  .card {
+    @apply rounded-2xl border p-4;
+    background: var(--card);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* Tarjeta que responde al puntero: usarla solo cuando toda la tarjeta es clicable. */
+  .card-interactive {
+    @apply rounded-2xl border p-4 text-left;
+    background: var(--card);
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease), border-color 0.2s var(--ease);
+  }
+
+  .card-interactive:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  }
+
+  .card-interactive:active {
+    transform: translateY(0);
+  }
+
+  .card-interactive:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring), var(--shadow-md);
+  }
+
+  /* Tarjeta de indicador con barra de acento superior. */
+  .stat-card {
+    @apply relative overflow-hidden rounded-2xl border p-4;
+    background: var(--card);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .stat-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--stat-accent, var(--primary)), transparent);
+    opacity: 0.9;
+  }
+
+  .stat-value {
+    @apply mt-1 text-2xl font-black tracking-tight;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- Formularios ---------- */
+
+  .input,
+  .textarea,
+  select.input {
+    color: var(--foreground);
+    background: var(--input);
+    border-color: var(--border-strong);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  }
+
+  .input {
+    @apply h-10 w-full rounded-lg border px-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .textarea {
+    @apply min-h-20 w-full rounded-lg border px-3 py-2 text-sm;
+  }
+
+  .input::placeholder,
+  .textarea::placeholder {
+    color: var(--muted);
+    opacity: 0.75;
+  }
+
+  .input:focus,
+  .textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+
+  .input:hover:not(:focus):not(:disabled),
+  .textarea:hover:not(:focus) {
+    border-color: var(--muted);
+  }
+
+  .label {
+    @apply mb-1.5 block text-xs font-semibold uppercase tracking-wide;
+    color: var(--muted);
+  }
+
+  /* Campo de importe grande, pensado para captura con teclado numérico. */
+  .input-amount {
+    @apply h-14 rounded-xl text-right text-2xl font-bold;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /* ---------- Botones ---------- */
+
+  .button {
+    @apply inline-flex h-10 select-none items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .button-primary {
+    @apply inline-flex h-10 select-none items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold disabled:pointer-events-none disabled:opacity-50;
+    color: var(--primary-foreground);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 92%, white), var(--primary));
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    transition: background 0.18s var(--ease), box-shadow 0.18s var(--ease), transform 0.12s var(--ease);
+  }
+
+  .button-primary:hover {
+    background: linear-gradient(180deg, var(--primary), var(--primary-hover));
+    box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--primary) 55%, transparent);
+  }
+
+  .button-primary:active {
+    transform: translateY(1px);
+  }
+
+  .button-secondary {
+    @apply inline-flex h-10 select-none items-center justify-center gap-2 rounded-lg border px-4 text-sm font-semibold transition disabled:pointer-events-none disabled:opacity-50;
+    background: var(--card);
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .button-secondary:hover {
+    background: var(--card-muted);
+    border-color: var(--muted);
+  }
+
+  .button-secondary:active {
+    transform: translateY(1px);
+  }
+
+  .button-ghost {
+    @apply inline-flex h-10 select-none items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold transition disabled:pointer-events-none disabled:opacity-50;
+    color: var(--muted);
+  }
+
+  .button-ghost:hover {
+    background: color-mix(in srgb, var(--foreground) 6%, transparent);
+    color: var(--foreground);
+  }
+
+  .button-lg {
+    @apply h-12 rounded-xl px-6 text-base;
+  }
+
+  .button-primary:focus-visible,
+  .button-secondary:focus-visible,
+  .button-ghost:focus-visible,
+  .button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+
+  /* ---------- Navegación ---------- */
+
+  .nav-section {
+    @apply mb-1.5 mt-4 px-3 text-[0.68rem] font-bold uppercase tracking-widest first:mt-0;
+    color: color-mix(in srgb, var(--muted) 85%, transparent);
+  }
+
+  .nav-link {
+    @apply relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium;
+    color: var(--foreground);
+    transition: background 0.16s var(--ease), color 0.16s var(--ease);
+  }
+
+  .nav-link:hover {
+    background: color-mix(in srgb, var(--primary) 8%, transparent);
+    color: var(--primary);
+  }
+
+  .nav-link[data-active="true"] {
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+    color: var(--primary);
+    font-weight: 600;
+  }
+
+  .nav-link[data-active="true"]::before {
+    content: "";
+    position: absolute;
+    left: -0.25rem;
+    top: 50%;
+    height: 1.15rem;
+    width: 3px;
+    border-radius: 999px;
+    background: var(--primary);
+    transform: translateY(-50%);
+  }
+
+  /* Control segmentado para cambiar de modo sin salir de la pantalla. */
+  .segmented {
+    @apply inline-flex items-center gap-1 rounded-xl border p-1;
+    background: var(--card-muted);
+  }
+
+  .segmented-item {
+    @apply inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold;
+    color: var(--muted);
+    transition: background 0.16s var(--ease), color 0.16s var(--ease), box-shadow 0.16s var(--ease);
+  }
+
+  .segmented-item:hover {
+    color: var(--foreground);
+  }
+
+  .segmented-item[data-active="true"] {
+    background: var(--card);
+    color: var(--primary);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* ---------- Piezas sueltas ---------- */
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold;
+    background: var(--card-muted);
+    color: var(--muted);
+  }
+
+  .kbd {
+    @apply inline-flex h-5 min-w-5 items-center justify-center rounded border px-1.5 text-[0.68rem] font-bold;
+    background: var(--card-muted);
+    color: var(--muted);
+    border-color: var(--border-strong);
+  }
+
+  .avatar {
+    @apply grid shrink-0 place-items-center rounded-full font-bold;
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+    color: var(--primary);
+  }
+
+  .progress {
+    @apply h-2 w-full overflow-hidden rounded-full;
+    background: color-mix(in srgb, var(--muted) 18%, transparent);
+  }
+
+  .progress-bar {
+    @apply h-full rounded-full;
+    background: linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 60%, #f59e0b));
+    transition: width 0.4s var(--ease);
+  }
+
+  .empty-state {
+    @apply flex flex-col items-center gap-3 rounded-2xl border border-dashed px-6 py-12 text-center;
+    background: color-mix(in srgb, var(--card) 60%, transparent);
+  }
+
+  .skeleton {
+    @apply rounded-lg;
+    background: linear-gradient(90deg, var(--card-muted), color-mix(in srgb, var(--muted) 16%, var(--card-muted)), var(--card-muted));
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  }
+
+  @keyframes skeleton-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+
+  .fade-in {
+    animation: fade-in 0.28s var(--ease) both;
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(6px); }
+  }
+
+  /* ---------- Tablas ---------- */
+
+  .table-wrap {
+    @apply overflow-x-auto rounded-2xl border;
+    background: var(--card);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .data-table {
+    @apply w-full border-collapse text-sm;
+  }
+
+  .data-table th {
+    @apply border-b px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide;
+    color: var(--muted);
+    background: var(--card-muted);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  .data-table td {
+    @apply border-b px-3 py-2.5 align-middle;
+  }
+
+  .data-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .data-table tbody tr {
+    transition: background 0.12s ease;
+  }
+
+  .data-table tbody tr:hover {
+    background: color-mix(in srgb, var(--primary) 5%, transparent);
+  }
+
+  /* ---------- Encabezados ---------- */
+
+  .page-header {
+    @apply mb-5 flex flex-wrap items-center justify-between gap-3;
+  }
+
+  .page-title {
+    @apply text-2xl font-black tracking-tight;
+    letter-spacing: -0.02em;
+  }
+
+  .eyebrow {
+    @apply text-xs font-bold uppercase tracking-widest;
+    color: var(--muted);
+  }
+
+  /* Región con desplazamiento contenido: solo esta zona se desplaza, nunca la página. */
+  .scroll-area {
+    @apply overflow-y-auto;
+    max-height: 100%;
+  }
+
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(4, 7, 12, 0.6);
+    backdrop-filter: blur(3px);
+    z-index: 50;
+    animation: modal-fade 0.18s var(--ease);
+  }
+
+  .modal-content {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(94vw, 580px);
+    max-height: 88vh;
+    overflow-y: auto;
+    z-index: 51;
+    border-radius: var(--radius-modal);
+    border: 1px solid var(--border);
+    background: var(--card);
+    box-shadow: var(--shadow-lg);
+    padding: 1.35rem;
+    animation: modal-pop 0.2s var(--ease);
+  }
+
+  @keyframes modal-fade {
+    from { opacity: 0; }
+  }
+
+  @keyframes modal-pop {
+    from { opacity: 0; transform: translate(-50%, -46%) scale(0.97); }
+  }
+
+  .muted {
+    color: var(--muted);
+  }
+
+  .form-grid {
+    @apply grid gap-4 md:grid-cols-2;
+  }
+
+  .money {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .text-income {
+    color: var(--income);
+  }
+
+  .text-deduction {
+    color: var(--deduction);
+  }
+}
+
+@media print {
+  @page {
+    margin: 4mm;
+  }
+
+  body {
+    background: white;
+    color: black;
+  }
+
+  .no-print,
+  aside,
+  header {
+    display: none !important;
+  }
+
+  .print-receipt {
+    width: var(--receipt-width, 80mm);
+    margin: 0 auto;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .print-receipt * {
+    color: #000 !important;
+    background: transparent !important;
+  }
+}
