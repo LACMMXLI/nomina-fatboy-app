@@ -422,8 +422,10 @@ export async function createUserAction(formData: FormData) {
     .object({
       firstName: z.string().trim().min(1),
       lastName: z.string().trim().min(1),
-      email: z.email(),
-      username: z.string().trim().min(3),
+      // Se guardan siempre en minúsculas: la columna sigue siendo texto normal,
+      // la normalización ocurre aquí, antes de escribir.
+      email: z.email().toLowerCase(),
+      username: z.string().trim().toLowerCase().min(3),
       password: z.string().min(12),
       role: z.enum(["SUPER_ADMIN", "ADMINISTRADOR", "ENCARGADO", "CONSULTA"]),
       branchIds: z.array(z.string().uuid()).default([]),
@@ -434,6 +436,17 @@ export async function createUserAction(formData: FormData) {
     });
   const actor = await requireUser("users:manage");
   const { password, branchIds, ...userData } = parsed;
+  // El duplicado se busca sin distinguir mayúsculas, para que "Ana" no pueda
+  // coexistir con un "ana" dado de alta antes de esta normalización.
+  const duplicate = await db.user.findFirst({
+    where: {
+      OR: [
+        { email: { equals: userData.email, mode: "insensitive" } },
+        { username: { equals: userData.username, mode: "insensitive" } },
+      ],
+    },
+  });
+  if (duplicate) throw new Error("El correo o nombre de usuario ya está en uso.");
   const user = await db.user.create({
     data: {
       ...userData,
@@ -459,8 +472,8 @@ export async function updateUserAction(
       updatedAt: z.coerce.date(),
       firstName: z.string().trim().min(1),
       lastName: z.string().trim().min(1),
-      email: z.email(),
-      username: z.string().trim().min(3),
+      email: z.email().toLowerCase(),
+      username: z.string().trim().toLowerCase().min(3),
       role: z.enum(["SUPER_ADMIN", "ADMINISTRADOR", "ENCARGADO", "CONSULTA"]).optional(),
       branchIds: z.array(z.string().uuid()).default([]),
     })
@@ -469,10 +482,15 @@ export async function updateUserAction(
   try {
     const actor = await requireUser();
     if (!canManageUser(actor.role, actor.id, parsed.data.userId)) throw new Error("No puedes editar este usuario.");
+    // Comparación sin distinguir mayúsculas, para no chocar con cuentas
+    // creadas antes de que se normalizara el guardado.
     const duplicate = await db.user.findFirst({
       where: {
         id: { not: parsed.data.userId },
-        OR: [{ email: parsed.data.email }, { username: parsed.data.username }],
+        OR: [
+          { email: { equals: parsed.data.email, mode: "insensitive" } },
+          { username: { equals: parsed.data.username, mode: "insensitive" } },
+        ],
       },
     });
     if (duplicate) throw new Error("El correo o nombre de usuario ya está en uso.");

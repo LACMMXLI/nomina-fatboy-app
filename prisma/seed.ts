@@ -73,8 +73,10 @@ async function main() {
     },
   });
 
-  const email = process.env.INITIAL_ADMIN_EMAIL;
-  const username = process.env.INITIAL_ADMIN_USERNAME;
+  // Se normalizan igual que en el alta desde la interfaz, para que el admin
+  // inicial pueda entrar sin importar cómo se escribieran las variables.
+  const email = process.env.INITIAL_ADMIN_EMAIL?.trim().toLowerCase();
+  const username = process.env.INITIAL_ADMIN_USERNAME?.trim().toLowerCase();
   const password = process.env.INITIAL_ADMIN_PASSWORD;
   if (!email || !username || !password || password.length < 12) {
     throw new Error("Configura INITIAL_ADMIN_EMAIL, INITIAL_ADMIN_USERNAME e INITIAL_ADMIN_PASSWORD (mínimo 12 caracteres).");

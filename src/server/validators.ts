@@ -17,7 +17,10 @@ export const employeeSchema = z.object({
   calculationMode: z.enum(["FIXED", "PRORATED"]),
   paymentMethod: z.enum(["CASH", "TRANSFER", "MIXED", "OTHER"]),
   phone: z.string().trim().optional(),
-  email: z.union([z.email("El correo no es válido."), z.literal("")]).optional(),
+  email: z
+    .union([z.email("El correo no es válido."), z.literal("")])
+    .optional()
+    .transform((value) => value?.toLowerCase()),
   notes: z.string().trim().optional(),
 });
 

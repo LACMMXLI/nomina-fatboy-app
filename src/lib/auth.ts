@@ -5,7 +5,9 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 
 const credentialsSchema = z.object({
-  identifier: z.string().trim().min(1),
+  // El identificador se normaliza a minúsculas: da igual cómo lo escriba
+  // el usuario, y coincide con la forma en que se guardan usuario y correo.
+  identifier: z.string().trim().toLowerCase().min(1),
   password: z.string().min(1),
   remember: z.string().optional(),
 });
