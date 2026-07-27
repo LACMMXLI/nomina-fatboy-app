@@ -4,9 +4,10 @@ import { compare, hash } from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { ConceptType, FolioType, Role } from "@/generated/prisma/client";
+import { ConceptType, FolioType, Prisma, Role } from "@/generated/prisma/client";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { db } from "@/lib/db";
+import { formatDate } from "@/lib/format";
 import { canManageUser, hasPermission } from "@/lib/permissions";
 import type { QuickCaptureData } from "@/lib/quick-capture";
 import { ForbiddenError, assertBranchAccess, requireUser } from "@/server/auth";
@@ -150,39 +151,54 @@ export async function createPeriodAction(
       throw new ForbiddenError("Debes elegir una sucursal a la que tengas acceso.");
     }
     assertBranchAccess(user, parsed.data.branchId || null);
-    const duplicate = await db.payrollPeriod.findFirst({
-      where: {
-        startDate: parsed.data.startDate,
-        endDate: parsed.data.endDate,
-        branchId: parsed.data.branchId || null,
-        status: { not: "CANCELLED" },
+    const branchId = parsed.data.branchId || null;
+    const period = await db.$transaction(
+      async (tx) => {
+        // Dos rangos se traslapan si cada uno empieza antes de que el otro termine.
+        // Un periodo sin sucursal cubre todas, así que choca con cualquiera;
+        // uno de sucursal choca con los de su sucursal y con los generales.
+        const overlapping = await tx.payrollPeriod.findFirst({
+          where: {
+            status: { not: "CANCELLED" },
+            startDate: { lte: parsed.data.endDate },
+            endDate: { gte: parsed.data.startDate },
+            ...(branchId ? { OR: [{ branchId }, { branchId: null }] } : {}),
+          },
+          include: { branch: { select: { name: true } } },
+          orderBy: { startDate: "asc" },
+        });
+        if (overlapping) {
+          throw new Error(
+            `El periodo se traslapa con ${overlapping.folio} (${overlapping.branch?.name ?? "todas las sucursales"}), del ${formatDate(overlapping.startDate)} al ${formatDate(overlapping.endDate)}.`,
+          );
+        }
+        const folio = await nextFolio(tx, FolioType.PERIOD);
+        const created = await tx.payrollPeriod.create({
+          data: {
+            ...parsed.data,
+            branchId,
+            folio,
+            status: "OPEN",
+            openedAt: new Date(),
+            createdByUserId: user.id,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            userId: user.id,
+            action: "CREATE_PERIOD",
+            entityType: "PayrollPeriod",
+            entityId: created.id,
+            branchId: created.branchId,
+            newValues: { folio, status: "OPEN" },
+          },
+        });
+        return created;
       },
-    });
-    if (duplicate) throw new Error(`Ya existe el periodo ${duplicate.folio} con esas fechas y sucursal.`);
-    const period = await db.$transaction(async (tx) => {
-      const folio = await nextFolio(tx, FolioType.PERIOD);
-      const created = await tx.payrollPeriod.create({
-        data: {
-          ...parsed.data,
-          branchId: parsed.data.branchId || null,
-          folio,
-          status: "OPEN",
-          openedAt: new Date(),
-          createdByUserId: user.id,
-        },
-      });
-      await tx.auditLog.create({
-        data: {
-          userId: user.id,
-          action: "CREATE_PERIOD",
-          entityType: "PayrollPeriod",
-          entityId: created.id,
-          branchId: created.branchId,
-          newValues: { folio, status: "OPEN" },
-        },
-      });
-      return created;
-    });
+      // Serializable evita que dos altas simultáneas pasen la comprobación
+      // de traslape a la vez y acaben insertando periodos superpuestos.
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
     return { ok: true, data: { id: period.id } };
   } catch (error) {
     return actionError(error);
