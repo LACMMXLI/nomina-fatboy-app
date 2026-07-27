@@ -15,6 +15,7 @@ import { QuickMovement } from "@/components/quick-movement";
 import { Badge } from "@/components/ui/badge";
 import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
+import { paidWhere, pendingWhere } from "@/lib/payroll-reporting";
 import { hasPermission } from "@/lib/permissions";
 import { requireUser } from "@/server/auth";
 
@@ -24,8 +25,8 @@ export default async function DashboardPage() {
   const user = await requireUser("reports:view");
   const branchFilter = user.role === "SUPER_ADMIN" ? {} : { branchId: { in: user.branchIds } };
   const [paid, pending, employeeCount, draftCount, recent, branches, openPeriod] = await Promise.all([
-    db.payroll.aggregate({ where: { ...branchFilter, status: "PAID" }, _sum: { netPay: true } }),
-    db.payroll.aggregate({ where: { ...branchFilter, status: "FINALIZED" }, _sum: { netPay: true } }),
+    db.payroll.aggregate({ where: { ...branchFilter, ...paidWhere }, _sum: { netPay: true } }),
+    db.payroll.aggregate({ where: { ...branchFilter, ...pendingWhere }, _sum: { netPay: true } }),
     db.employee.count({ where: { ...branchFilter, isActive: true } }),
     db.payroll.count({ where: { ...branchFilter, status: { in: ["DRAFT", "IN_REVIEW"] } } }),
     db.payroll.findMany({
@@ -36,7 +37,7 @@ export default async function DashboardPage() {
     }),
     db.branch.findMany({
       where: user.role === "SUPER_ADMIN" ? {} : { id: { in: user.branchIds } },
-      include: { payrolls: { where: { status: "PAID" }, select: { netPay: true } } },
+      include: { payrolls: { where: paidWhere, select: { netPay: true } } },
       orderBy: { name: "asc" },
     }),
     db.payrollPeriod.findFirst({

@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
 import { hasPermission } from "@/lib/permissions";
-import { requireUser } from "@/server/auth";
+import { branchAndFilters, requireUser } from "@/server/auth";
 
 export const metadata = { title: "Empleados" };
 
@@ -18,8 +18,9 @@ export default async function EmployeesPage({
   const page = Math.max(Number(params.page) || 1, 1);
   const take = 20;
   const where = {
-    ...(user.role === "SUPER_ADMIN" ? {} : { branchId: { in: user.branchIds } }),
-    ...(params.branch ? { branchId: params.branch } : {}),
+    // El alcance del usuario y la sucursal del filtro se acumulan con AND:
+    // el parámetro de la URL solo puede restringir, nunca ampliar.
+    AND: branchAndFilters(user, params.branch),
     ...(params.status === "inactive" ? { isActive: false } : params.status === "all" ? {} : { isActive: true }),
     ...(params.q
       ? {

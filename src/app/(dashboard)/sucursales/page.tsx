@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/format";
+import { PAID_STATUSES, PENDING_STATUSES, countableWhere, sumNet, uniqueEmployees } from "@/lib/payroll-reporting";
 import { hasPermission } from "@/lib/permissions";
 import { createBranchAction } from "@/server/actions";
 import { requireUser } from "@/server/auth";
@@ -12,7 +13,8 @@ export default async function BranchesPage() {
   const canSeeSalary = hasPermission(user.role, "salary:view");
   const branches = await db.branch.findMany({
     where: user.role === "SUPER_ADMIN" ? {} : { id: { in: user.branchIds } },
-    include: { _count: { select: { employees: true } }, payrolls: { select: { netPay: true } } },
+    // Solo nóminas contables (PAID/FINALIZED) y en su última versión.
+    include: { _count: { select: { employees: true } }, payrolls: { where: countableWhere, select: { netPay: true, status: true, employeeId: true } } },
     orderBy: { name: "asc" },
   });
   return (
@@ -35,7 +37,7 @@ export default async function BranchesPage() {
           </Modal>
         )}
       </div>
-      <section className="scroll-area min-h-0 flex-1 grid content-start gap-4 md:grid-cols-2 xl:grid-cols-3">{branches.map((branch) => <article className="card" key={branch.id}><div className="flex items-start justify-between"><div><p className="muted text-xs">{branch.code}</p><h2 className="text-xl font-bold">{branch.name}</h2></div><Badge value={branch.isActive ? "PAID" : "CANCELLED"}>{branch.isActive ? "Activa" : "Inactiva"}</Badge></div><p className="muted mt-3 text-sm">{branch.address || "Sin dirección"}<br />{branch.phone || "Sin teléfono"}<br />Responsable: {branch.managerName || "Sin asignar"}</p><div className="mt-4 grid grid-cols-2 gap-3 border-t pt-4"><div><p className="muted text-xs">Empleados</p><strong>{branch._count.employees}</strong></div>{canSeeSalary && <div><p className="muted text-xs">Nómina acumulada</p><strong>{formatMoney(branch.payrolls.reduce((sum, payroll) => sum + Number(payroll.netPay), 0))}</strong></div>}</div></article>)}</section>
+      <section className="scroll-area min-h-0 flex-1 grid content-start gap-4 md:grid-cols-2 xl:grid-cols-3">{branches.map((branch) => <article className="card" key={branch.id}><div className="flex items-start justify-between"><div><p className="muted text-xs">{branch.code}</p><h2 className="text-xl font-bold">{branch.name}</h2></div><Badge value={branch.isActive ? "PAID" : "CANCELLED"}>{branch.isActive ? "Activa" : "Inactiva"}</Badge></div><p className="muted mt-3 text-sm">{branch.address || "Sin dirección"}<br />{branch.phone || "Sin teléfono"}<br />Responsable: {branch.managerName || "Sin asignar"}</p><div className="mt-4 grid grid-cols-2 gap-3 border-t pt-4"><div><p className="muted text-xs">Empleados</p><strong>{branch._count.employees}</strong></div><div><p className="muted text-xs">Con nómina</p><strong>{uniqueEmployees(branch.payrolls)}</strong></div>{canSeeSalary && <div><p className="muted text-xs">Total pagado</p><strong>{formatMoney(sumNet(branch.payrolls, PAID_STATUSES))}</strong></div>}{canSeeSalary && <div><p className="muted text-xs">Total pendiente</p><strong>{formatMoney(sumNet(branch.payrolls, PENDING_STATUSES))}</strong></div>}</div></article>)}</section>
     </div>
   );
 }

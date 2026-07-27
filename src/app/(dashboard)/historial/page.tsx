@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
 import { statusLabel } from "@/lib/labels";
 import { hasPermission } from "@/lib/permissions";
-import { requireUser } from "@/server/auth";
+import { branchAndFilters, requireUser } from "@/server/auth";
 
 export default async function HistoryPage({
   searchParams,
@@ -17,8 +17,9 @@ export default async function HistoryPage({
   const page = Math.max(Number(params.page) || 1, 1);
   const take = 25;
   const where = {
-    ...(user.role === "SUPER_ADMIN" ? {} : { branchId: { in: user.branchIds } }),
-    ...(params.branch ? { branchId: params.branch } : {}),
+    // El alcance del usuario y la sucursal del filtro se acumulan con AND:
+    // el parámetro de la URL solo puede restringir, nunca ampliar.
+    AND: branchAndFilters(user, params.branch),
     ...(params.status ? { status: params.status as never } : {}),
     ...(params.q ? { OR: [{ folio: { contains: params.q, mode: "insensitive" as const } }, { employeeNameSnapshot: { contains: params.q, mode: "insensitive" as const } }, { employeeNumberSnapshot: { contains: params.q, mode: "insensitive" as const } }] } : {}),
   };

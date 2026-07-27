@@ -14,7 +14,7 @@ import { db } from "@/lib/db";
 import { fullName } from "@/lib/utils";
 import { formatFolio } from "@/lib/folio";
 import { canSeeSalary, redactSalary } from "@/lib/salary-visibility";
-import { requireUser } from "@/server/auth";
+import { ForbiddenError, assertBranchAccess, requireUser } from "@/server/auth";
 import type { z } from "zod";
 import type { payrollDraftSchema } from "@/server/validators";
 
@@ -62,7 +62,8 @@ export async function savePayrollDraft(input: DraftInput) {
     }),
   ]);
   if (!period || !employee) throw new Error("El periodo o empleado no existe.");
-  await requireUser("payroll:draft", employee.branchId);
+  assertBranchAccess(user, employee.branchId);
+  assertBranchAccess(user, period.branchId);
   if (!["OPEN", "DRAFT"].includes(period.status)) throw new Error("El periodo no está abierto.");
   if (!employee.isActive) throw new Error("El empleado no está activo.");
   if (period.branchId && period.branchId !== employee.branchId) {
@@ -70,18 +71,32 @@ export async function savePayrollDraft(input: DraftInput) {
   }
 
   return db.$transaction(async (tx) => {
+    // Dentro de la transacción se vuelve a comprobar el vínculo completo
+    // (nómina + periodo + empleado + sucursal) por si algo cambió al entrar.
     const current = input.payrollId
-      ? await tx.payroll.findUnique({ where: { id: input.payrollId } })
+      ? await tx.payroll.findFirst({
+          where: {
+            id: input.payrollId,
+            periodId: input.periodId,
+            employeeId: input.employeeId,
+            branchId: employee.branchId,
+          },
+        })
       : await tx.payroll.findFirst({
           where: {
             periodId: input.periodId,
             employeeId: input.employeeId,
+            branchId: employee.branchId,
             status: { in: [PayrollStatus.DRAFT, PayrollStatus.IN_REVIEW] },
           },
           orderBy: { version: "desc" },
         });
-    if (current && !editableStatuses.includes(current.status)) {
-      throw new Error("La nómina ya no puede editarse.");
+    if (input.payrollId && !current) {
+      throw new ForbiddenError("La nómina no corresponde a este empleado y periodo.");
+    }
+    if (current) {
+      assertBranchAccess(user, current.branchId);
+      if (!editableStatuses.includes(current.status)) throw new Error("La nómina ya no puede editarse.");
     }
 
     const baseSalary = current?.baseSalarySnapshot ?? employee.baseSalary;
@@ -105,6 +120,11 @@ export async function savePayrollDraft(input: DraftInput) {
       const updated = await tx.payroll.updateMany({
         where: {
           id: current.id,
+          // El vínculo se repite en la escritura: si otro proceso lo alteró,
+          // la actualización no encuentra fila y aborta en vez de escribir mal.
+          periodId: period.id,
+          employeeId: employee.id,
+          branchId: employee.branchId,
           status: { in: [PayrollStatus.DRAFT, PayrollStatus.IN_REVIEW] },
           ...(input.updatedAt ? { updatedAt: input.updatedAt } : {}),
         },
@@ -355,7 +375,8 @@ export async function addPayrollMovement(input: MovementInput): Promise<DraftSta
     db.employee.findUnique({ where: { id: input.employeeId }, include: { branch: true, position: true } }),
   ]);
   if (!period || !employee) throw new Error("El periodo o empleado no existe.");
-  await requireUser("payroll:draft", employee.branchId);
+  assertBranchAccess(user, employee.branchId);
+  assertBranchAccess(user, period.branchId);
   if (!["OPEN", "DRAFT"].includes(period.status)) throw new Error("El periodo no está abierto.");
   if (!employee.isActive) throw new Error("El empleado no está activo.");
   if (period.branchId && period.branchId !== employee.branchId) {
@@ -366,6 +387,7 @@ export async function addPayrollMovement(input: MovementInput): Promise<DraftSta
 
   return db.$transaction(async (tx) => {
     const draft = await getOrCreateDraft(tx, period, employee, user.id);
+    assertBranchAccess(user, draft.branchId);
     const highest = await tx.payrollItem.aggregate({ where: { payrollId: draft.id }, _max: { displayOrder: true } });
     await tx.payrollItem.create({
       data: {
@@ -387,11 +409,21 @@ export async function addPayrollMovement(input: MovementInput): Promise<DraftSta
 
 export async function removePayrollMovement(payrollId: string, itemId: string): Promise<DraftState> {
   const user = await requireUser("payroll:draft");
-  const payroll = await db.payroll.findUnique({ where: { id: payrollId } });
+  const payroll = await db.payroll.findUnique({
+    where: { id: payrollId },
+    include: { employee: { select: { branchId: true } } },
+  });
   if (!payroll) throw new Error("La nómina no existe.");
-  await requireUser("payroll:draft", payroll.branchId);
+  // La sucursal se valida por la nómina y por el empleado dueño de la misma.
+  assertBranchAccess(user, payroll.branchId);
+  assertBranchAccess(user, payroll.employee.branchId);
   if (!editableStatuses.includes(payroll.status)) throw new Error("La nómina ya no puede editarse.");
   return db.$transaction(async (tx) => {
+    // Se revalida dentro de la transacción antes de borrar.
+    const current = await tx.payroll.findFirst({
+      where: { id: payrollId, branchId: payroll.branchId, status: { in: editableStatuses } },
+    });
+    if (!current) throw new Error("La nómina ya no puede editarse.");
     const deleted = await tx.payrollItem.deleteMany({ where: { id: itemId, payrollId } });
     if (deleted.count === 0) throw new Error("El movimiento no existe.");
     return recalcDraft(tx, payrollId, user.id, "REMOVE_MOVEMENT", canSeeSalary(user.role));
@@ -402,9 +434,9 @@ export async function loadDraftState(periodId: string, employeeId: string): Prom
   const user = await requireUser("payroll:draft");
   const employee = await db.employee.findUnique({ where: { id: employeeId } });
   if (!employee) throw new Error("El empleado no existe.");
-  await requireUser("payroll:draft", employee.branchId);
+  assertBranchAccess(user, employee.branchId);
   const draft = await db.payroll.findFirst({
-    where: { periodId, employeeId, status: { in: editableStatuses } },
+    where: { periodId, employeeId, branchId: employee.branchId, status: { in: editableStatuses } },
     orderBy: { version: "desc" },
     include: { items: { orderBy: { displayOrder: "asc" } } },
   });
@@ -496,11 +528,13 @@ export async function finalizePayroll(payrollId: string, confirmed: boolean, neg
   return db.$transaction(async (tx) => {
     const payroll = await tx.payroll.findUnique({
       where: { id: payrollId },
-      include: { items: true },
+      include: { items: true, employee: { select: { branchId: true } } },
     });
     const settings = await tx.systemSettings.findUnique({ where: { id: "default" } });
     if (!payroll || !settings) throw new Error("La nómina o configuración no existe.");
-    await requireUser("payroll:finalize", payroll.branchId);
+    // Revalidación dentro de la transacción, sobre la nómina y su empleado.
+    assertBranchAccess(user, payroll.branchId);
+    assertBranchAccess(user, payroll.employee.branchId);
     if (!editableStatuses.includes(payroll.status)) {
       throw new Error("La nómina ya no puede finalizarse.");
     }
@@ -578,9 +612,13 @@ export interface PaymentInput {
 export async function markPayrollPaid(input: PaymentInput) {
   const user = await requireUser("payroll:finalize");
   return db.$transaction(async (tx) => {
-    const payroll = await tx.payroll.findUnique({ where: { id: input.payrollId } });
+    const payroll = await tx.payroll.findUnique({
+      where: { id: input.payrollId },
+      include: { employee: { select: { branchId: true } } },
+    });
     if (!payroll) throw new Error("La nómina no existe.");
-    await requireUser("payroll:finalize", payroll.branchId);
+    assertBranchAccess(user, payroll.branchId);
+    assertBranchAccess(user, payroll.employee.branchId);
     if (payroll.status !== PayrollStatus.FINALIZED) throw new Error("Solo una nómina finalizada puede pagarse.");
     if (payroll.netPay.isNegative()) throw new Error("Una nómina con saldo pendiente no puede marcarse como pagada.");
     validateMixedPayment(payroll.netPay.toString(), input.cashAmount, input.transferAmount, input.otherAmount);
@@ -625,8 +663,13 @@ export async function cancelPayroll(payrollId: string, reason: string, password:
     throw new Error("La contraseña de confirmación no es correcta.");
   }
   return db.$transaction(async (tx) => {
-    const payroll = await tx.payroll.findUnique({ where: { id: payrollId } });
+    const payroll = await tx.payroll.findUnique({
+      where: { id: payrollId },
+      include: { employee: { select: { branchId: true } } },
+    });
     if (!payroll) throw new Error("La nómina no existe.");
+    assertBranchAccess(user, payroll.branchId);
+    assertBranchAccess(user, payroll.employee.branchId);
     if (!cancellableStatuses.includes(payroll.status)) {
       throw new Error("Esta nómina no puede cancelarse.");
     }
@@ -660,10 +703,15 @@ export async function replacePayroll(payrollId: string, reason: string) {
   const user = await requireUser("payroll:cancel");
   if (!reason.trim()) throw new Error("El motivo es obligatorio.");
   return db.$transaction(async (tx) => {
-    const original = await tx.payroll.findUnique({ where: { id: payrollId }, include: { items: true } });
+    const original = await tx.payroll.findUnique({
+      where: { id: payrollId },
+      include: { items: true, employee: { select: { branchId: true } } },
+    });
     if (!original || !replaceableStatuses.includes(original.status)) {
       throw new Error("Esta nómina no puede reemplazarse.");
     }
+    assertBranchAccess(user, original.branchId);
+    assertBranchAccess(user, original.employee.branchId);
     const folio = await nextFolio(tx, FolioType.PAYROLL);
     const replacement = await tx.payroll.create({
       data: {

@@ -11,12 +11,20 @@ export const runtime = "nodejs";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ payrollId: string }> }) {
   const { payrollId } = await params;
+  const user = await requireUser("reports:view");
   const receipt = await db.payrollReceipt.findUnique({
     where: { payrollId },
-    include: { payroll: true },
+    include: { payroll: { include: { employee: { select: { branchId: true } } } } },
   });
   if (!receipt) return Response.json({ error: "Recibo no encontrado." }, { status: 404 });
-  const user = await requireUser("reports:view", receipt.payroll.branchId);
+  // La sucursal se valida por la nómina y por el empleado dueño de la misma.
+  if (
+    user.role !== "SUPER_ADMIN" &&
+    (!user.branchIds.includes(receipt.payroll.branchId) ||
+      !user.branchIds.includes(receipt.payroll.employee.branchId))
+  ) {
+    return Response.json({ error: "No tienes acceso a esta sucursal." }, { status: 403 });
+  }
   const snapshot = receiptSnapshotSchema.parse(receipt.snapshot);
   const verificationUrl = `${process.env.APP_URL ?? "http://localhost:3000"}/recibo/verificar/${receipt.verificationToken}`;
   const qrDataUrl = snapshot.settings.showQr ? await QRCode.toDataURL(verificationUrl, { margin: 1, width: 240 }) : undefined;

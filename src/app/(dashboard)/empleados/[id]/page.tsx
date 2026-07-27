@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
 import { periodicityLabel, statusLabel } from "@/lib/labels";
 import { hasPermission } from "@/lib/permissions";
-import { requireUser } from "@/server/auth";
+import { assertBranchAccess, requireUser } from "@/server/auth";
 import { toggleEmployeeAction, updateEmployeeSalaryAction } from "@/server/actions";
 
 export default async function EmployeeDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -23,7 +23,7 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
     },
   });
   if (!employee) notFound();
-  await requireUser("reports:view", employee.branchId);
+  assertBranchAccess(user, employee.branchId);
   return (
     <>
       <div className="page-header">

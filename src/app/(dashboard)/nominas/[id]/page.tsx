@@ -8,7 +8,7 @@ import { db } from "@/lib/db";
 import { formatDateTime, formatMoney } from "@/lib/format";
 import { hasPermission } from "@/lib/permissions";
 import { receiptSnapshotSchema } from "@/lib/receipt";
-import { requireUser } from "@/server/auth";
+import { assertBranchAccess, requireUser } from "@/server/auth";
 import { cancelPayrollAction, finalizePayrollAction, markPaidAction, replacePayrollAction } from "@/server/actions";
 import QRCode from "qrcode";
 
@@ -26,10 +26,13 @@ export default async function PayrollDetailPage({ params }: { params: Promise<{ 
       previousPayroll: { select: { id: true, folio: true, version: true } },
       replacementPayroll: { select: { id: true, folio: true, version: true } },
       finalizedBy: true,
+      employee: { select: { branchId: true } },
     },
   });
   if (!payroll) notFound();
-  await requireUser("reports:view", payroll.branchId);
+  // La sucursal se valida por la nómina y por el empleado dueño de la misma.
+  assertBranchAccess(user, payroll.branchId);
+  assertBranchAccess(user, payroll.employee.branchId);
   const receipt = payroll.receipt ? receiptSnapshotSchema.parse(payroll.receipt.snapshot) : null;
   const verificationUrl = payroll.receipt ? `${process.env.APP_URL ?? "http://localhost:3000"}/recibo/verificar/${payroll.receipt.verificationToken}` : "";
   const qrDataUrl = receipt?.settings.showQr ? await QRCode.toDataURL(verificationUrl, { margin: 1, width: 220 }) : undefined;

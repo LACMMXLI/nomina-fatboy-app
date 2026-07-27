@@ -9,7 +9,7 @@ import { actionError, type ActionResult } from "@/lib/action-result";
 import { db } from "@/lib/db";
 import { canManageUser, hasPermission } from "@/lib/permissions";
 import type { QuickCaptureData } from "@/lib/quick-capture";
-import { requireUser } from "@/server/auth";
+import { ForbiddenError, assertBranchAccess, requireUser } from "@/server/auth";
 import {
   addPayrollMovement,
   cancelPayroll,
@@ -38,7 +38,9 @@ export async function createEmployeeAction(
   const parsed = employeeSchema.safeParse(fields(formData));
   if (!parsed.success) return invalid(parsed.error);
   try {
-    const user = await requireUser("employees:manage", parsed.data.branchId);
+    const user = await requireUser("employees:manage");
+    // La sucursal viene del formulario: se valida contra las asignadas al usuario.
+    assertBranchAccess(user, parsed.data.branchId);
     const employee = await db.$transaction(async (tx) => {
       const created = await tx.employee.create({
         data: {
@@ -80,7 +82,8 @@ export async function updateEmployeeSalaryAction(formData: FormData) {
     const user = await requireUser("employees:manage");
     await db.$transaction(async (tx) => {
       const employee = await tx.employee.findUniqueOrThrow({ where: { id: parsed.data.employeeId } });
-      await requireUser("employees:manage", employee.branchId);
+      // Revalidación dentro de la transacción, antes de escribir.
+      assertBranchAccess(user, employee.branchId);
       await tx.employeeSalaryHistory.create({
         data: {
           employeeId: employee.id,
@@ -118,7 +121,7 @@ export async function toggleEmployeeAction(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   const user = await requireUser("employees:manage");
   const employee = await db.employee.findUniqueOrThrow({ where: { id } });
-  await requireUser("employees:manage", employee.branchId);
+  assertBranchAccess(user, employee.branchId);
   await db.$transaction([
     db.employee.update({ where: { id }, data: { isActive: !employee.isActive } }),
     db.auditLog.create({
@@ -141,7 +144,12 @@ export async function createPeriodAction(
   const parsed = periodSchema.safeParse(fields(formData));
   if (!parsed.success) return invalid(parsed.error);
   try {
-    const user = await requireUser("periods:manage", parsed.data.branchId || undefined);
+    const user = await requireUser("periods:manage");
+    // Un periodo sin sucursal abarca todas: solo el super admin puede crearlo.
+    if (!parsed.data.branchId && user.role !== "SUPER_ADMIN") {
+      throw new ForbiddenError("Debes elegir una sucursal a la que tengas acceso.");
+    }
+    assertBranchAccess(user, parsed.data.branchId || null);
     const duplicate = await db.payrollPeriod.findFirst({
       where: {
         startDate: parsed.data.startDate,

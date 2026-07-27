@@ -6,7 +6,7 @@ import { QuickCaptureTable } from "@/components/quick-capture-table";
 import { db } from "@/lib/db";
 import { hasPermission } from "@/lib/permissions";
 import { fullName } from "@/lib/utils";
-import { requireUser } from "@/server/auth";
+import { assertBranchAccess, requireUser } from "@/server/auth";
 
 export const metadata = { title: "Tabla del periodo" };
 
@@ -46,7 +46,7 @@ export default async function QuickCapturePage({ searchParams }: { searchParams:
   if (!periodId) redirect(`/nominas/captura-rapida?periodId=${periods[0].id}`);
 
   const period = await db.payrollPeriod.findUniqueOrThrow({ where: { id: periodId } });
-  if (period.branchId) await requireUser("payroll:draft", period.branchId);
+  assertBranchAccess(user, period.branchId);
   const employees = await db.employee.findMany({
     where: {
       isActive: true,

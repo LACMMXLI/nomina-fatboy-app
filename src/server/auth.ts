@@ -47,3 +47,31 @@ export async function requireUser(permission?: Permission, branchId?: string) {
 export function branchScope(user: CurrentUser) {
   return user.role === "SUPER_ADMIN" ? {} : { id: { in: user.branchIds } };
 }
+
+export class ForbiddenError extends Error {
+  readonly status = 403;
+  constructor(message = "No tienes acceso a esta sucursal.") {
+    super(message);
+    this.name = "ForbiddenError";
+  }
+}
+
+/** Falla si la sucursal pedida no está entre las asignadas al usuario. */
+export function assertBranchAccess(user: CurrentUser, branchId: string | null | undefined) {
+  if (!branchId) return;
+  if (user.role === "SUPER_ADMIN") return;
+  if (!user.branchIds.includes(branchId)) throw new ForbiddenError();
+}
+
+/**
+ * Condiciones de sucursal para combinar con `AND`.
+ * El alcance del usuario y la sucursal pedida se acumulan: el parámetro
+ * nunca puede sustituir al alcance, solo restringirlo todavía más.
+ */
+export function branchAndFilters(user: CurrentUser, requestedBranchId?: string | null) {
+  assertBranchAccess(user, requestedBranchId);
+  const filters: Array<{ branchId: string | { in: string[] } }> = [];
+  if (user.role !== "SUPER_ADMIN") filters.push({ branchId: { in: user.branchIds } });
+  if (requestedBranchId) filters.push({ branchId: requestedBranchId });
+  return filters;
+}

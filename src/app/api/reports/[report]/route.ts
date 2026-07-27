@@ -1,6 +1,8 @@
 import ExcelJS from "exceljs";
+import { PayrollStatus } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { periodicityLabel, statusLabel } from "@/lib/labels";
+import { countableWhere, uniqueEmployees } from "@/lib/payroll-reporting";
 import { requireUser } from "@/server/auth";
 
 export const runtime = "nodejs";
@@ -13,7 +15,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ rep
   workbook.creator = "Nómina Fatboy";
   workbook.created = new Date();
   if (report === "payrolls.xlsx") {
-    const rows = await db.payroll.findMany({ where: branchWhere, orderBy: { createdAt: "desc" } });
+    // Solo PAID y FINALIZED, y solo la última versión: las canceladas,
+    // reemplazadas y los borradores nunca entran al reporte.
+    const rows = await db.payroll.findMany({
+      where: { ...branchWhere, ...countableWhere },
+      orderBy: { createdAt: "desc" },
+    });
     const sheet = workbook.addWorksheet("Nóminas");
     sheet.columns = [
       { header: "Folio", key: "folio", width: 20 },
@@ -23,14 +30,36 @@ export async function GET(_request: Request, { params }: { params: Promise<{ rep
       { header: "Periodo", key: "period", width: 24 },
       { header: "Ingresos", key: "income", width: 15 },
       { header: "Descuentos", key: "deductions", width: 15 },
-      { header: "Total", key: "net", width: 15 },
+      { header: "Pagado", key: "paid", width: 15 },
+      { header: "Pendiente", key: "pending", width: 15 },
       { header: "Estado", key: "status", width: 16 },
     ];
-    rows.forEach((row) => sheet.addRow({ folio: row.folio, employee: row.employeeNameSnapshot, number: row.employeeNumberSnapshot, branch: row.branchNameSnapshot, period: row.periodNameSnapshot, income: Number(row.totalIncome), deductions: Number(row.totalDeductions), net: Number(row.netPay), status: statusLabel(row.status) }));
-    for (const column of ["F", "G", "H"]) sheet.getColumn(column).numFmt = '"$"#,##0.00';
-    const totals = sheet.addRow({ employee: "TOTALES", income: { formula: `SUM(F2:F${sheet.rowCount})` }, deductions: { formula: `SUM(G2:G${sheet.rowCount})` }, net: { formula: `SUM(H2:H${sheet.rowCount})` } });
+    rows.forEach((row) => {
+      const net = Number(row.netPay);
+      const isPaid = row.status === PayrollStatus.PAID;
+      sheet.addRow({
+        folio: row.folio,
+        employee: row.employeeNameSnapshot,
+        number: row.employeeNumberSnapshot,
+        branch: row.branchNameSnapshot,
+        period: row.periodNameSnapshot,
+        income: Number(row.totalIncome),
+        deductions: Number(row.totalDeductions),
+        paid: isPaid ? net : 0,
+        pending: isPaid ? 0 : net,
+        status: statusLabel(row.status),
+      });
+    });
+    for (const column of ["F", "G", "H", "I"]) sheet.getColumn(column).numFmt = '"$"#,##0.00';
+    const totals = sheet.addRow({
+      employee: `TOTALES · ${uniqueEmployees(rows)} empleados únicos`,
+      income: { formula: `SUM(F2:F${sheet.rowCount})` },
+      deductions: { formula: `SUM(G2:G${sheet.rowCount})` },
+      paid: { formula: `SUM(H2:H${sheet.rowCount})` },
+      pending: { formula: `SUM(I2:I${sheet.rowCount})` },
+    });
     totals.font = { bold: true };
-    sheet.autoFilter = `A1:I${sheet.rowCount}`;
+    sheet.autoFilter = `A1:J${sheet.rowCount}`;
   } else if (report === "employees.xlsx") {
     const rows = await db.employee.findMany({ where: branchWhere, include: { branch: true, position: true }, orderBy: { lastName: "asc" } });
     const sheet = workbook.addWorksheet("Empleados");

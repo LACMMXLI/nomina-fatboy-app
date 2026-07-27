@@ -6,7 +6,7 @@ import { PayrollForm } from "@/components/payroll-form";
 import { db } from "@/lib/db";
 import { hasPermission } from "@/lib/permissions";
 import { fullName } from "@/lib/utils";
-import { requireUser } from "@/server/auth";
+import { ForbiddenError, assertBranchAccess, requireUser } from "@/server/auth";
 
 export const metadata = { title: "Captura detallada" };
 
@@ -76,18 +76,38 @@ export default async function PayrollCapturePage({
     );
   }
 
-  const [period, employee, existing] = await Promise.all([
+  const [period, employee] = await Promise.all([
     db.payrollPeriod.findUniqueOrThrow({ where: { id: params.periodId } }),
     db.employee.findUniqueOrThrow({ where: { id: params.employeeId }, include: { branch: true, position: true } }),
-    params.payrollId
-      ? db.payroll.findUnique({ where: { id: params.payrollId }, include: { items: true } })
-      : db.payroll.findFirst({
-          where: { periodId: params.periodId, employeeId: params.employeeId, status: { in: ["DRAFT", "IN_REVIEW"] } },
-          include: { items: true },
-          orderBy: { version: "desc" },
-        }),
   ]);
-  await requireUser("payroll:draft", employee.branchId);
+  // La sucursal del empleado manda; el periodo no puede sacarlo de su alcance.
+  assertBranchAccess(user, employee.branchId);
+  assertBranchAccess(user, period.branchId);
+  if (period.branchId && period.branchId !== employee.branchId) throw new ForbiddenError("El empleado no pertenece a la sucursal del periodo.");
+
+  // Un payrollId de la URL solo sirve si además coincide con el periodo, el
+  // empleado y la sucursal permitida: nunca se busca por identificador suelto.
+  const existing = params.payrollId
+    ? await db.payroll.findFirst({
+        where: {
+          id: params.payrollId,
+          periodId: period.id,
+          employeeId: employee.id,
+          branchId: employee.branchId,
+        },
+        include: { items: true },
+      })
+    : await db.payroll.findFirst({
+        where: {
+          periodId: period.id,
+          employeeId: employee.id,
+          branchId: employee.branchId,
+          status: { in: ["DRAFT", "IN_REVIEW"] },
+        },
+        include: { items: true },
+        orderBy: { version: "desc" },
+      });
+  if (params.payrollId && !existing) throw new ForbiddenError("La nómina solicitada no corresponde a este empleado y periodo.");
   return (
     <>
       <div className="page-header">
