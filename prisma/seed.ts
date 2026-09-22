@@ -1,10 +1,8 @@
 import "dotenv/config";
-import { hash } from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import {
   ConceptType,
   PrismaClient,
-  Role,
 } from "../src/generated/prisma/client";
 
 const connectionString = process.env.DATABASE_URL;
@@ -71,34 +69,6 @@ async function main() {
         "Este documento es un comprobante interno de pago y no sustituye el recibo fiscal de nómina correspondiente.",
       timezone: process.env.TIMEZONE ?? "America/Tijuana",
     },
-  });
-
-  // Se normalizan igual que en el alta desde la interfaz, para que el admin
-  // inicial pueda entrar sin importar cómo se escribieran las variables.
-  const email = process.env.INITIAL_ADMIN_EMAIL?.trim().toLowerCase();
-  const username = process.env.INITIAL_ADMIN_USERNAME?.trim().toLowerCase();
-  const password = process.env.INITIAL_ADMIN_PASSWORD;
-  if (!email || !username || !password || password.length < 12) {
-    throw new Error("Configura INITIAL_ADMIN_EMAIL, INITIAL_ADMIN_USERNAME e INITIAL_ADMIN_PASSWORD (mínimo 12 caracteres).");
-  }
-  const passwordHash = await hash(password, 12);
-  const user = await db.user.upsert({
-    where: { username },
-    update: { email, isActive: true },
-    create: {
-      username,
-      email,
-      passwordHash,
-      firstName: "Administrador",
-      lastName: "Fatboy",
-      role: Role.SUPER_ADMIN,
-      preference: { create: {} },
-    },
-  });
-  const allBranches = await db.branch.findMany({ select: { id: true } });
-  await db.userBranch.createMany({
-    data: allBranches.map((branch) => ({ userId: user.id, branchId: branch.id })),
-    skipDuplicates: true,
   });
 }
 

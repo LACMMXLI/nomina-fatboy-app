@@ -20,6 +20,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "prisma db seed",
+    "db:create-admin": "tsx scripts/create-admin.ts",
     "db:backup": "tsx scripts/database.ts backup",
     "db:restore": "tsx scripts/database.ts restore",
     "db:backups": "tsx scripts/database.ts list",
