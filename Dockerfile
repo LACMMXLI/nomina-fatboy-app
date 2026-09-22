@@ -8,6 +8,7 @@ RUN npm ci
 FROM node:24-alpine AS builder
 WORKDIR /app
 COPY --from=dependencies /app/node_modules ./node_modules
+COPY --from=dependencies /app/src/generated ./src/generated
 COPY . .
 RUN npm run build
 
